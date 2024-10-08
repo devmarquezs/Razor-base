@@ -1,0 +1,11 @@
+[package]
+name = "base"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Gráficos
+wgpu = "0.15"
+winit = "0.28"
+pollster = "0.3"
+anyhow = "1.0"
