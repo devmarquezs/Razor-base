@@ -17,10 +17,13 @@ fn main() -> Result<()> {
 }
 
 async fn run(event_loop: EventLoop<()>, window: winit::window::Window) -> Result<()> {
-    // Inicializar o renderer
+    // Inicializa o render
     let mut render = Render::new(&window).await?;
-
-    // Iniciar o loop principal de eventos
+    
+    // Carregar a textura de uma imagem na pasta "assets/images"
+    let (_, sprite_bind_group) = render.load_texture("src/assets/images/image.jpg")?;
+    
+    // Iniciar o loop de eventos
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -30,18 +33,16 @@ async fn run(event_loop: EventLoop<()>, window: winit::window::Window) -> Result
                 WindowEvent::Resized(physical_size) => {
                     render.resize(physical_size);
                 }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    render.resize(*new_inner_size);
-                }
                 _ => {}
             },
             Event::RedrawRequested(_) => {
+                // Chame aqui a função de renderização de sprite
                 if let Err(e) = render.render() {
                     eprintln!("Render error: {:?}", e);
                 }
             }
             Event::MainEventsCleared => {
-                window.request_redraw(); // Solicita uma nova renderização
+                window.request_redraw();
             }
             _ => {}
         }
