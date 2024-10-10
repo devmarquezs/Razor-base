@@ -11,3 +11,5 @@ pollster = "0.3"
 anyhow = "1.0"
 image = "0.24"  # Biblioteca para carregar imagens
 bytemuck = { version = "1.9", features = ["derive"] }
+resvg = "0.26"  
+tiny-skia = "0.4"
