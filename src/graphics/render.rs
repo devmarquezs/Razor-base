@@ -1,16 +1,33 @@
 use anyhow::Result;
-//use wgpu::util::DeviceExt;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
-//use image::GenericImageView;  // Para carregar a imagem
 use std::num::NonZeroU32;
+use bytemuck::{Pod, Zeroable};
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]  // Agora a derivação está correta
+struct Vertex {
+    position: [f32; 2],  // Posição 2D do vértice
+    tex_coords: [f32; 2],  // Coordenadas de textura (UV)
+}
 
 pub struct Render {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface,
     config: wgpu::SurfaceConfiguration,
-    texture_bind_group_layout: wgpu::BindGroupLayout,  // Layout de binding para texturas
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    vertex_buffer: wgpu::Buffer,  // Adicionar o buffer de vértices
+    render_pipeline: wgpu::RenderPipeline,  // Adicionar o pipeline gráfico
 }
+
+// Definir os vértices do sprite 2D (um quadrado)
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [-0.5, -0.5], tex_coords: [0.0, 1.0] }, // Inferior esquerdo
+    Vertex { position: [ 0.5, -0.5], tex_coords: [1.0, 1.0] }, // Inferior direito
+    Vertex { position: [ 0.5,  0.5], tex_coords: [1.0, 0.0] }, // Superior direito
+    Vertex { position: [-0.5,  0.5], tex_coords: [0.0, 0.0] }, // Superior esquerdo
+];
 
 impl Render {
     pub async fn new(window: &Window) -> Result<Self> {
@@ -42,9 +59,13 @@ impl Render {
             )
             .await?;
 
+        // Verificar o formato disponível da surface
+        let formats = surface.get_capabilities(&adapter).formats;
+        let format = formats.get(0).ok_or_else(|| anyhow::anyhow!("No supported surface format found"))?;
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_capabilities(&adapter).formats[0],
+            format: *format,
             width: window.inner_size().width,
             height: window.inner_size().height,
             present_mode: wgpu::PresentMode::Fifo,
@@ -53,6 +74,7 @@ impl Render {
         };
         surface.configure(&device, &config);
 
+        // Criar layout de binding de textura
         let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -75,12 +97,85 @@ impl Render {
             label: Some("texture_bind_group_layout"),
         });
 
+        // Criar o vertex buffer
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        // Carregar os shaders(Wgsl)
+        let vertex_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Vertex Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sprite.vert.wgsl").into()),  // WGSL shader como alternativa
+        });
+        let fragment_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Fragment Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sprite.frag.wgsl").into()),  // WGSL shader como alternativa
+            });
+      
+
+        // Pipeline gráfico
+        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[&texture_bind_group_layout],  // Layout da textura
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &vertex_shader_module,
+                entry_point: "main",  // Ponto de entrada do shader de vértice
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &[
+                            wgpu::VertexAttribute {
+                                offset: 0,
+                                shader_location: 0,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                            wgpu::VertexAttribute {
+                                offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                                shader_location: 1,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                        ],
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &fragment_shader_module,
+                entry_point: "main",  // Ponto de entrada do shader de fragmento
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,  // Para desenhar o quadrado
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         Ok(Self {
             device,
             queue,
             surface,
             config,
             texture_bind_group_layout,
+            vertex_buffer,
+            render_pipeline,
         })
     }
 
@@ -94,7 +189,7 @@ impl Render {
     }
 
     // Método de renderização
-    pub fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self, bind_group: &wgpu::BindGroup) -> Result<()> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(e) => {
@@ -112,18 +207,23 @@ impl Render {
         });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), // Limpa a tela com preto
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), // Cor de fundo preta
                         store: true,
                     },
                 })],
                 depth_stencil_attachment: None,
                 label: Some("Render Pass"),
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);  // Define o pipeline
+            render_pass.set_bind_group(0, bind_group, &[]);   // Define o bind group da textura
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));  // Define o buffer de vértices
+            render_pass.draw(0..4, 0..1);  // Desenha 4 vértices (um quadrado)
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -169,11 +269,12 @@ impl Render {
             &img,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * dimensions.0),
-                rows_per_image: NonZeroU32::new(dimensions.1),
+                bytes_per_row: NonZeroU32::new(4 * dimensions.0),  // Corrigido para Option<NonZeroU32>
+                rows_per_image: NonZeroU32::new(dimensions.1),     // Corrigido para Option<NonZeroU32>
             },
             texture_size,
         );
+        
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -204,3 +305,4 @@ impl Render {
         Ok((texture, bind_group))
     }
 }
+
