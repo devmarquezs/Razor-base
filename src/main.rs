@@ -22,7 +22,7 @@ async fn run(event_loop: EventLoop<()>, window: winit::window::Window) -> Result
     let mut render = Render::new(&window).await?;
     
     // Carregar a textura
-    let (_, bind_group) = render.load_texture("src/assets/images/Razor-base.png")?;
+    let (_, bind_group) = render.load_texture("src/assets/images/razorfuture.jpeg")?;
     
     // Iniciar o loop de eventos
     event_loop.run(move |event, _, control_flow| {
