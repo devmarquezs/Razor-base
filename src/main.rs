@@ -1,11 +1,12 @@
 use winit::{
-    event::*,
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow,EventLoop},
     window::WindowBuilder,
 };
+
 use anyhow::Result; // Para lidar com erros
-mod graphics;
 use graphics::render::Render;
+mod graphics;
+
 
 fn main() -> Result<()> {
     // Criar o event loop e a janela
@@ -17,33 +18,34 @@ fn main() -> Result<()> {
 }
 
 async fn run(event_loop: EventLoop<()>, window: winit::window::Window) -> Result<()> {
-    // Inicializar o renderer
+    // Inicializar o renderizador
     let mut render = Render::new(&window).await?;
-
-    // Iniciar o loop principal de eventos
+    
+    // Carregar a textura
+    let (_, bind_group) = render.load_texture("src/assets/images/razorfuture.jpeg")?;
+    
+    // Iniciar o loop de eventos
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
+        *control_flow = ControlFlow::Poll;  // Define para verificar os eventos constantemente
+    
         match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(physical_size) => {
-                    render.resize(physical_size);
+            winit::event::Event::WindowEvent { event, .. } => match event {
+                winit::event::WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;  // Fechar a janela corretamente
                 }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    render.resize(*new_inner_size);
+                winit::event::WindowEvent::Resized(physical_size) => {
+                    // Redimensionar a janela
+                    render.resize(physical_size);
                 }
                 _ => {}
             },
-            Event::RedrawRequested(_) => {
-                if let Err(e) = render.render() {
+            winit::event::Event::RedrawRequested(_) => {
+                if let Err(e) = render.render(&bind_group) {
                     eprintln!("Render error: {:?}", e);
                 }
-            }
-            Event::MainEventsCleared => {
-                window.request_redraw(); // Solicita uma nova renderização
             }
             _ => {}
         }
     });
-}
+    
+}    
